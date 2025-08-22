@@ -64,7 +64,7 @@ To create a standalone executable that can be run by double-clicking (no Python 
 
 1. **Convert agent.py to EXE**:
 ```bash
-pyinstaller agent.spec
+pyinstaller agent.py
 ```
 
 2. **The executable will be created** in the `dist/agent/` directory as `agent.exe`
