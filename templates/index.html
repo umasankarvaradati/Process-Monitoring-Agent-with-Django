@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Process Monitor</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      display: flex;
+      margin: 0;
+      background: #f9f9f9;
+    }
+
+    .sidebar {
+      width: 220px;
+      background: #f08080;
+      padding: 10px;
+      height: 100vh;
+      box-sizing: border-box;
+    }
+
+    .sidebar h2 {
+      font-size: 18px;
+      margin: 10px 0;
+    }
+
+    .sidebar ul {
+      list-style: none;
+      padding: 0;
+    }
+
+    .sidebar li {
+      background: #fff;
+      margin: 5px 0;
+      padding: 8px;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .sidebar li:hover {
+      background: #ddd;
+    }
+
+    .content {
+      flex: 1;
+      padding: 20px;
+      overflow: auto;
+    }
+
+    .btn-group {
+      margin: 15px 0;
+    }
+
+    .btn {
+      margin-right: 10px;
+      padding: 6px 12px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      background: #444;
+      color: white;
+    }
+
+    .btn:hover {
+      background: #666;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+
+    table, th, td {
+      border: 1px solid #aaa;
+    }
+
+    th, td {
+      padding: 8px;
+      text-align: left;
+    }
+
+    th {
+      background: #eee;
+    }
+
+    .toggle {
+      cursor: pointer;
+      font-weight: bold;
+      margin-right: 5px;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .child-row {
+      background: #f9f9f9;
+    }
+  </style>
+</head>
+<body>
+  <div class="sidebar">
+    <h2>Hosts</h2>
+    <ul id="hostList"></ul>
+  </div>
+
+  <div class="content">
+    <div id="hostActions"></div>
+    <div id="details"></div>
+  </div>
+
+  <script>
+    let currentData = null;
+    let autoRefreshInterval = null;
+
+    async function loadData() {
+      try {
+        showLoading();
+        let res = await fetch("/api/latest/");
+        if (!res.ok) {
+          throw new Error(`HTTP error! status: ${res.status}`);
+        }
+        let data = await res.json();
+
+        currentData = data;
+        updateHostList(data);
+        updateTimestamp(data.timestamp);
+        hideLoading();
+      } catch (err) {
+        console.error("Failed to load data:", err);
+        document.getElementById("details").innerHTML = `
+          <div style="color: red; padding: 20px;">
+            <h2>Error Loading Data</h2>
+            <p>${err.message}</p>
+            <p>Make sure the Django server is running and the agent has sent data.</p>
+          </div>
+        `;
+        hideLoading();
+      }
+    }
+
+    function showLoading() {
+      document.getElementById("details").innerHTML = `
+        <div style="text-align: center; padding: 40px;">
+          <div style="font-size: 18px; margin-bottom: 10px;">Loading data...</div>
+          <div style="width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; margin: 0 auto; animation: spin 1s linear infinite;"></div>
+        </div>
+      `;
+    }
+
+    function hideLoading() {
+      // Loading is handled by replacing content, so no specific action needed
+    }
+
+    function updateTimestamp(timestamp) {
+      const timeElement = document.getElementById("currentTime");
+      if (timeElement) {
+        const date = new Date(timestamp);
+        timeElement.textContent = `Last updated: ${date.toLocaleString()}`;
+      }
+    }
+
+    function updateHostList(data) {
+      let hosts = {};
+      if (data.hostname) {
+        hosts[data.hostname] = data;
+      }
+
+      let hostList = document.getElementById("hostList");
+      hostList.innerHTML = "";
+      Object.keys(hosts).forEach(hostname => {
+        let li = document.createElement("li");
+        li.innerText = hostname;
+        li.onclick = () => showHostOptions(hosts[hostname]);
+        hostList.appendChild(li);
+      });
+
+      // Auto-select the first host if only one exists
+      if (Object.keys(hosts).length === 1) {
+        showHostOptions(data);
+      }
+    }
+
+    function showHostOptions(hostData) {
+      let hostActions = document.getElementById("hostActions");
+      hostActions.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 15px; margin-bottom: 20px;">
+          <h2 style="margin: 0;">${hostData.hostname}</h2>
+          <div class="btn-group">
+            <button class="btn" onclick='showSystemDetails(${JSON.stringify(hostData).replace(/'/g, "\\'")})'>System Details</button>
+            <button class="btn" onclick='showProcessDetails(${JSON.stringify(hostData).replace(/'/g, "\\'")})'>Process Details</button>
+            <button class="btn" onclick='loadData()'>Refresh</button>
+          </div>
+          <span id="currentTime" style="color: #666; font-size: 14px;"></span>
+        </div>
+      `;
+      updateTimestamp(hostData.timestamp);
+      document.getElementById("details").innerHTML = "";
+    }
+
+    function showSystemDetails(hostData) {
+      let sys = hostData.system || {};
+
+      let html = `
+        <h2>System Details - ${hostData.hostname}</h2>
+        <table>
+          <tr><td><b>Hostname</b></td><td>${hostData.hostname || "-"}</td></tr>
+          <tr><td><b>Operating System</b></td><td>${sys.os || "-"}</td></tr>
+          <tr><td><b>Processor</b></td><td>${sys.processor || "-"}</td></tr>
+          <tr><td><b>Number of Cores</b></td><td>${sys.cores || "-"}</td></tr>
+          <tr><td><b>Number of Threads</b></td><td>${sys.threads || "-"}</td></tr>
+          <tr><td><b>Total RAM (GB)</b></td><td>${sys.ram_gb || "-"}</td></tr>
+          <tr><td><b>Used RAM (GB)</b></td><td>${sys.used_ram_gb || "-"}</td></tr>
+          <tr><td><b>Available RAM (GB)</b></td><td>${sys.free_ram_gb || "-"}</td></tr>
+          <tr><td><b>Storage Total (GB)</b></td><td>${sys.storage_total_gb || "-"}</td></tr>
+          <tr><td><b>Storage Used (GB)</b></td><td>${sys.storage_used_gb || "-"}</td></tr>
+          <tr><td><b>Storage Free (GB)</b></td><td>${sys.storage_free_gb || "-"}</td></tr>
+        </table>
+      `;
+      document.getElementById("details").innerHTML = html;
+      updateTimestamp(hostData.timestamp);
+    }
+
+    function showProcessDetails(hostData) {
+      let tree = buildTree(hostData.processes || []);
+      let html = `
+        <h2>Processes - ${hostData.hostname}</h2>
+        <div style="margin-bottom: 15px;">
+          <span style="color: #666;">Total processes: ${hostData.processes ? hostData.processes.length : 0}</span>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th></th>
+              <th>Name (PID)</th>
+              <th>CPU (%)</th>
+              <th>Memory (MB)</th>
+              <th>PPID</th>
+              <th>Username</th>
+            </tr>
+          </thead>
+          <tbody id="processTable"></tbody>
+        </table>
+      `;
+      document.getElementById("details").innerHTML = html;
+      renderTable(tree, document.getElementById("processTable"), hostData.hostname);
+      updateTimestamp(hostData.timestamp);
+    }
+
+    function buildTree(processes) {
+      let map = {};
+      processes.forEach(p => map[p.pid] = { ...p, children: [] });
+      let roots = [];
+      processes.forEach(p => {
+        if (map[p.ppid]) {
+          map[p.ppid].children.push(map[p.pid]);
+        } else {
+          roots.push(map[p.pid]);
+        }
+      });
+      return roots;
+    }
+
+    function renderTable(nodes, tableBody, hostname, level = 0, parentId = null) {
+      nodes.forEach(n => {
+        let rowId = "row-" + n.pid;
+        let tr = document.createElement("tr");
+        tr.id = rowId;
+        if (parentId) {
+          tr.classList.add("child-row", "hidden", "child-of-" + parentId);
+        }
+
+        let toggle = "";
+        if (n.children.length > 0) {
+          toggle = `<span class="toggle" onclick="toggleChildren('${n.pid}')">▶</span>`;
+        }
+
+        tr.innerHTML = `
+          <td>${toggle}</td>
+          <td style="padding-left:${level * 20}px">${n.name} (PID: ${n.pid})</td>
+          <td>${n.cpu.toFixed(2)}%</td>
+          <td>${n.memory ? n.memory.toFixed(2) : "0.00"}</td>
+          <td>${n.ppid}</td>
+          <td>${n.username || "N/A"}</td>
+        `;
+        tableBody.appendChild(tr);
+
+        if (n.children.length > 0) {
+          renderTable(n.children, tableBody, hostname, level + 1, n.pid);
+        }
+      });
+    }
+
+    function toggleChildren(pid) {
+      let rows = document.querySelectorAll(".child-of-" + pid);
+      rows.forEach(r => {
+        if (r.classList.contains("hidden")) {
+          r.classList.remove("hidden");
+          document.querySelector("#row-" + pid + " .toggle").innerText = "▼";
+        } else {
+          r.classList.add("hidden");
+          document.querySelector("#row-" + pid + " .toggle").innerText = "▶";
+        }
+      });
+    }
+
+    loadData();
+  </script>
+</body>
+</html>
